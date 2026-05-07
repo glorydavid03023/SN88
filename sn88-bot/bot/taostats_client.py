@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -203,9 +204,25 @@ class TaostatsClient:
     def get_json(self, endpoint: str, params: dict[str, Any] | None = None) -> Any:
         endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         url = f"{self.settings.taostats_base_url}{endpoint}"
-        resp = self.session.get(url, params=params or {}, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+        max_retries = 8
+        base_sleep = 3.0
+        last_resp: requests.Response | None = None
+        for attempt in range(max_retries):
+            last_resp = self.session.get(url, params=params or {}, timeout=60)
+            if last_resp.status_code == 429:
+                ra = last_resp.headers.get("Retry-After")
+                try:
+                    wait_s = float(ra) if ra is not None else base_sleep + 4.0 * attempt
+                except ValueError:
+                    wait_s = base_sleep + 4.0 * attempt
+                wait_s = float(min(max(wait_s, base_sleep), 45.0))
+                time.sleep(wait_s)
+                continue
+            last_resp.raise_for_status()
+            return last_resp.json()
+        if last_resp is not None:
+            last_resp.raise_for_status()
+        raise RuntimeError(f"Taostats GET failed after retries: {url}")
 
     def fetch_subnets(self) -> list[SubnetMetrics]:
         metrics, _, _ = self.fetch_subnets_with_payload()

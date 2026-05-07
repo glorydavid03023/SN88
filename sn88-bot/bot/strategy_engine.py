@@ -66,15 +66,20 @@ def score_subnets(rows: list[SubnetMetrics], settings: Settings) -> list[SubnetM
     return candidates
 
 
-def pick_top(rows: list[SubnetMetrics], settings: Settings) -> list[SubnetMetrics]:
-    scored = score_subnets(rows, settings)
-    # SN88 Tao/Alpha has an implicit position-size constraint enforced by the API:
-    # max_weight <= 1 / (N**0.7), where N is number of allocations (excluding "_").
-    # If MIN_WEIGHT would violate this constraint, reduce N until feasible.
+def pick_top_preordered(scored: list[SubnetMetrics], settings: Settings) -> list[SubnetMetrics]:
+    """
+    Take the first TOP_N rows from a list already sorted by score descending
+    (for example ML-ranked subnets), respecting the SN88 API min-weight vs N bound.
+    """
     n = min(settings.top_n, len(scored))
     while n > 1 and settings.min_weight > (1.0 / (n**0.7)):
         n -= 1
     return scored[:n]
+
+
+def pick_top(rows: list[SubnetMetrics], settings: Settings) -> list[SubnetMetrics]:
+    scored = score_subnets(rows, settings)
+    return pick_top_preordered(scored, settings)
 
 
 def build_weights(top_rows: list[SubnetMetrics], settings: Settings) -> dict[int, float]:

@@ -47,6 +47,7 @@ class Settings:
     subnet_data_source: str
     taostats_base_url: str
     taostats_subnets_endpoint: str
+    taostats_pool_history_endpoint: str
     csv_path: Path
     save_fetched_data: bool
     fetched_data_dir: Path
@@ -65,6 +66,18 @@ class Settings:
     w_flow: float
     w_emission: float
     w_drawdown: float
+
+    ml_history_days: int
+    ml_history_max_pages: int
+    ml_min_rows_per_subnet: int
+    ml_min_train_rows: int
+    ml_prob_threshold: float
+    ml_vol_lambda: float
+    ml_slip_lambda: float
+    ml_lgbm_seed: int
+    ml_max_subnets_fetch: int
+    ml_request_sleep_s: float
+    ml_history_page_sleep_s: float
 
     dry_run: bool
     backup_old_strategy: bool
@@ -100,6 +113,9 @@ def load_settings(env_file: str | None = None) -> Settings:
         subnet_data_source=os.getenv("SUBNET_DATA_SOURCE", "taostats").strip().lower(),
         taostats_base_url=os.getenv("TAOSTATS_BASE_URL", "https://api.taostats.io").rstrip("/"),
         taostats_subnets_endpoint=os.getenv("TAOSTATS_SUBNETS_ENDPOINT", "/api/dtao/subnet/latest/v1").strip(),
+        taostats_pool_history_endpoint=os.getenv(
+            "TAOSTATS_POOL_HISTORY_ENDPOINT", "/api/dtao/pool/history/v1"
+        ).strip(),
         csv_path=csv_path,
         save_fetched_data=_as_bool(os.getenv("SAVE_FETCHED_DATA"), False),
         fetched_data_dir=fetched_data_dir,
@@ -116,6 +132,17 @@ def load_settings(env_file: str | None = None) -> Settings:
         w_flow=_as_float("W_FLOW", 0.10),
         w_emission=_as_float("W_EMISSION", 0.10),
         w_drawdown=_as_float("W_DRAWDOWN", 0.25),
+        ml_history_days=_as_int("ML_HISTORY_DAYS", 45),
+        ml_history_max_pages=_as_int("ML_HISTORY_MAX_PAGES", 1),
+        ml_min_rows_per_subnet=_as_int("ML_MIN_ROWS_PER_SUBNET", 60),
+        ml_min_train_rows=_as_int("ML_MIN_TRAIN_ROWS", 400),
+        ml_prob_threshold=_as_float("ML_PROB_THRESHOLD", 0.5),
+        ml_vol_lambda=_as_float("ML_VOL_LAMBDA", 0.15),
+        ml_slip_lambda=_as_float("ML_SLIP_LAMBDA", 0.35),
+        ml_lgbm_seed=_as_int("ML_LGBM_SEED", 42),
+        ml_max_subnets_fetch=_as_int("ML_MAX_SUBNETS_FETCH", 0),
+        ml_request_sleep_s=_as_float("ML_REQUEST_SLEEP_S", 0.55),
+        ml_history_page_sleep_s=_as_float("ML_HISTORY_PAGE_SLEEP_S", 0.35),
         dry_run=_as_bool(os.getenv("DRY_RUN"), False),
         backup_old_strategy=_as_bool(os.getenv("BACKUP_OLD_STRATEGY"), True),
     )
@@ -124,7 +151,7 @@ def load_settings(env_file: str | None = None) -> Settings:
 def validate_required_settings(settings: Settings) -> None:
     if not settings.hotkey_ss58:
         raise ValueError("HOTKEY_SS58 is missing in .env")
-    if settings.subnet_data_source == "taostats" and not settings.taostats_api_key:
+    if settings.subnet_data_source in ("taostats", "ml") and not settings.taostats_api_key:
         raise ValueError("TAOSTATS_API_KEY is missing in .env")
     if settings.max_weight <= 0 or settings.max_weight > 1:
         raise ValueError("MAX_WEIGHT must be between 0 and 1")

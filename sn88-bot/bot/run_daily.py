@@ -7,7 +7,7 @@ from pathlib import Path
 from .config import load_settings, validate_required_settings
 from .data_cache import save_taostats_snapshot
 from .logging_utils import log
-from .strategy_engine import build_strategy, pick_top, format_strategy
+from .strategy_engine import build_strategy, pick_top, pick_top_preordered, format_strategy
 from .submitter import write_strategy_file
 from .taostats_client import TaostatsClient, load_subnets_from_csv
 
@@ -15,7 +15,12 @@ from .taostats_client import TaostatsClient, load_subnets_from_csv
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate and submit SN88 Tao/Alpha strategy")
     parser.add_argument("--env", default=None, help="Path to .env file")
-    parser.add_argument("--source", choices=["taostats", "csv"], default=None, help="Override SUBNET_DATA_SOURCE")
+    parser.add_argument(
+        "--source",
+        choices=["taostats", "csv", "ml"],
+        default=None,
+        help="Override SUBNET_DATA_SOURCE",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print strategy but do not write/touch strategy file")
     parser.add_argument("--save-data", action="store_true", help="Save fetched Taostats payload + normalized rows into FETCHED_DATA_DIR")
     parser.add_argument("--submit", action="store_true", help="Write/touch strategy file even if DRY_RUN=true in .env")
@@ -41,6 +46,28 @@ def main() -> int:
     if settings.subnet_data_source == "csv":
         rows = load_subnets_from_csv(settings.csv_path)
         log(f"Loaded {len(rows)} subnet rows from CSV: {settings.csv_path}", log_path)
+        top = pick_top(rows, settings)
+    elif settings.subnet_data_source == "ml":
+        from .ml_ranking import fetch_and_rank_ml
+
+        client = TaostatsClient(settings)
+        rows, endpoint_used, payload = client.fetch_subnets_with_payload()
+        log(f"Fetched {len(rows)} subnet rows from Taostats (pool latest)", log_path)
+        if settings.save_fetched_data:
+            paths = save_taostats_snapshot(
+                settings.fetched_data_dir,
+                endpoint=endpoint_used,
+                payload=payload,
+                metrics=rows,
+            )
+            log(f"Saved Taostats snapshot: {paths['raw_json']}", log_path)
+            log(f"Saved Taostats normalized: {paths['norm_csv']}", log_path)
+        try:
+            scored = fetch_and_rank_ml(client, rows, settings, log_path)
+            top = pick_top_preordered(scored, settings)
+        except Exception as exc:
+            log(f"ML ranking failed ({exc!r}); falling back to heuristic Taostats scoring.", log_path)
+            top = pick_top(rows, settings)
     else:
         client = TaostatsClient(settings)
         rows, endpoint_used, payload = client.fetch_subnets_with_payload()
@@ -54,8 +81,7 @@ def main() -> int:
             )
             log(f"Saved Taostats snapshot: {paths['raw_json']}", log_path)
             log(f"Saved Taostats normalized: {paths['norm_csv']}", log_path)
-
-    top = pick_top(rows, settings)
+        top = pick_top(rows, settings)
     strategy = build_strategy(top, settings)
     strategy_text = format_strategy(strategy)
 

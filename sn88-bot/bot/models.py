@@ -17,10 +17,15 @@ class SubnetMetrics:
     emission: float = 0.0
     drawdown: float = 0.0
     score: float = 0.0
+    ml_prob_up: float | None = None
+    ml_return_pred: float | None = None
 
     def as_log_line(self) -> str:
-        return (
+        base = (
             f"SN{self.netuid} {self.name} score={self.score:.4f} "
             f"7D={self.change_7d:.2f} 1D={self.change_1d:.2f} 1H={self.change_1h:.2f} "
             f"liq={self.liquidity_tao:.2f} flow7d={self.flow_7d:.2f} emission={self.emission:.2f} dd={self.drawdown:.2f}"
         )
+        if self.ml_prob_up is not None and self.ml_return_pred is not None:
+            return base + f" ml_p_up={self.ml_prob_up:.3f} ml_ret24={self.ml_return_pred:.5f}"
+        return base
